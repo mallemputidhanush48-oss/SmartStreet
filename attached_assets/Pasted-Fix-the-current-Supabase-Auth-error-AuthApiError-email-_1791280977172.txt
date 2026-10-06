@@ -1,0 +1,60 @@
+Fix the current Supabase Auth error:
+
+`AuthApiError: email rate limit exceeded`
+
+The error occurs at:
+
+`src/lib/auth-context.tsx`
+
+inside:
+
+`client.auth.signUp(...)`
+
+IMPORTANT:
+
+Do NOT replace Supabase Auth.
+
+Do NOT create custom authentication.
+
+Do NOT change the Next.js architecture.
+
+Do NOT create a separate backend.
+
+Do NOT remove authentication.
+
+First inspect the existing authentication implementation and identify why signup is being triggered repeatedly or unnecessarily.
+
+For development, make the signup flow robust:
+
+1. Keep Supabase Auth email/password authentication.
+2. Prevent duplicate signup requests caused by UI double-clicks or repeated submissions.
+3. Disable the signup button while the request is processing.
+4. Display a friendly error when Supabase returns an email rate-limit error:
+   "Email service rate limit reached. Please wait and try again later."
+5. Do not expose raw Supabase errors to normal users.
+6. Do not automatically retry signup requests.
+7. Do not create multiple signup requests from React effects.
+8. Make sure React development behavior does not cause signup to execute twice.
+9. Keep the existing Supabase client configuration.
+10. Do not modify the database schema unless necessary.
+
+IMPORTANT FOR HACKATHON DEVELOPMENT:
+
+Do not repeatedly test signup automatically.
+
+For development, provide a clean login flow using existing Supabase Auth users.
+
+If email confirmation is enabled in Supabase, explain in the README that new users may need email confirmation.
+
+After fixing the code:
+
+* Run the application.
+* Verify signup makes only ONE Supabase signUp request per click.
+* Verify login works for an existing Supabase user.
+* Verify logout works.
+* Verify the authenticated session persists after refresh.
+* Verify the user's profile and role can still be loaded.
+
+Do not spend time implementing additional features until authentication is stable.
+
+If the Supabase email rate limit itself is the only remaining issue, do not attempt to bypass it programmatically. Report that the application code is working and that Supabase email delivery needs to cool down or be configured appropriately.

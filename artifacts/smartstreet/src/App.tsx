@@ -64,11 +64,15 @@ function AuthScreen({ mode, onDone }: { mode: 'login' | 'signup'; onDone: (profi
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const submitInFlight = useRef(false);
   const signup = mode === 'signup';
   async function submit(event: FormEvent) {
-    event.preventDefault(); setError(''); setSuccessMessage('');
+    event.preventDefault();
+    if (submitInFlight.current) return;
+    setError(''); setSuccessMessage('');
     if (signup && !fullName.trim()) { setError('Please enter your full name.'); return; }
     if (password.length < 6) { setError('Use a password with at least 6 characters.'); return; }
+    submitInFlight.current = true;
     setBusy(true);
     try {
       if (signup) {
@@ -82,7 +86,7 @@ function AuthScreen({ mode, onDone }: { mode: 'login' | 'signup'; onDone: (profi
       const profile = await refreshProfile();
       onDone(profile as Profile | null);
     } catch (err) { setError(niceError(err)); }
-    finally { setBusy(false); }
+    finally { submitInFlight.current = false; setBusy(false); }
   }
   return <main className="auth-page">
     <section className="auth-art">

@@ -15,6 +15,7 @@ SmartStreet tracks streetlight faults from a resident report through technician 
 2. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` as Replit Secrets. If the project uses the newer publishable-key name instead, set `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` with that public key. Do not commit real values.
 3. In Supabase **SQL Editor**, run `supabase/schema.sql`.
 4. Configure Supabase Auth's site URL and allowed redirect URLs to include the app's development and published origins. Email/password sign-in is used. If email confirmation is enabled, residents must confirm their address before signing in.
+   Sign-up runs only after a form submission; in-flight duplicate submissions are ignored and the app does not retry Auth requests automatically. If Supabase reports an email rate limit, the app asks the user to wait and try again later. During development, use an existing Auth account rather than repeatedly submitting sign-ups.
 5. Create accounts using the app's sign-up page. New sign-ups always receive the `citizen` role. Create at least one admin and one technician by changing profiles from the Supabase SQL Editor after their Auth users have been created and confirmed:
 
    ```sql
