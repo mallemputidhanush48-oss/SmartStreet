@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "SmartStreet"
+description = "A streetlight issue reporting and maintenance coordination app for Hyderabad neighborhoods. Citizens can report outages, administrators can prioritize and assign work, and technicians can resolve assigned tasks with every state backed by Supabase."
+version = "1.0.0"
+id = "artifacts/smartstreet"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20851
+
+[services.development]
+run = "pnpm --filter @workspace/smartstreet run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/smartstreet", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/smartstreet/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20851"
+BASE_PATH = "/"
