@@ -5,6 +5,7 @@ dist
 tmp
 out-tsc
 *.tsbuildinfo
+.next
 .expo
 .expo-shared
 
@@ -47,3 +48,8 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example

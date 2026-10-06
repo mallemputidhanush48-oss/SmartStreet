@@ -1,24 +1,28 @@
-import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+'use client';
+
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/lib/auth-context';
 import {
   assignTechnician, createReport, getAdminData, getCitizenReports, getNotifications,
   getStreetlights, getTechnicianTasks, markNotificationRead, resolveMaintenanceTask,
   startMaintenanceTask, verifyMaintenanceTask,
 } from '@/lib/smartstreet';
-import NotFound from '@/pages/not-found';
 import {
   Activity, AlertCircle, Bell, Check, CheckCircle2, ChevronRight, ClipboardList,
   Clock3, Construction, FileWarning, LampDesk, Lightbulb, LoaderCircle, LogOut,
   MapPin, Menu, ShieldCheck, Signal, UserRound, Wrench, X,
 } from 'lucide-react';
-import { Link, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 25_000, retry: 1, refetchOnWindowFocus: false } },
+const StreetlightMap = dynamic(() => import('@/components/streetlight-map'), {
+  ssr: false,
+  loading: () => <div className="map-card"><div className="skeleton" style={{ width: 180, margin: '24px auto' }} /></div>,
 });
 
 type Role = 'citizen' | 'admin' | 'technician';
@@ -34,13 +38,15 @@ const titleCase = (value?: string | null) => (value || 'unknown').replaceAll('_'
 const initials = (name?: string) => (name || 'Resident').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 const statusClass = (status?: string) => `status-pill ${(status || '').toLowerCase().replaceAll(' ', '_')}`;
 const formatDate = (value?: string | null) => value ? new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—';
-const niceError = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+const niceError = (error: unknown) => error instanceof Error
+  ? error.message
+  : 'We couldn’t complete that request. Please try again in a moment.';
 
 function Busy({ label = 'Loading your street view' }: { label?: string }) {
   return <div className="panel" aria-live="polite"><div className="skeleton" style={{ width: 110, marginBottom: 14 }} /><div className="skeleton" style={{ width: '70%', height: 23, marginBottom: 20 }} /><div className="skeleton" style={{ width: '100%', height: 95 }} /><p className="helper" style={{ marginBottom: 0 }}>{label}…</p></div>;
 }
 function Failure({ error, retry }: { error: unknown; retry?: () => void }) {
-  return <div className="error-box" role="alert"><span>{niceError(error)} Please try again in a moment.</span>{retry && <button className="btn small secondary" onClick={retry} data-testid="button-retry">Retry</button>}</div>;
+  return <div className="error-box" role="alert"><span>{niceError(error)}</span>{retry && <button className="btn small secondary" onClick={retry} data-testid="button-retry">Retry</button>}</div>;
 }
 function Empty({ icon: Icon = Signal, title, copy }: { icon?: typeof Signal; title: string; copy: string }) {
   return <div className="empty-state"><div className="empty-icon"><Icon size={19} /></div><strong>{title}</strong><p>{copy}</p></div>;
@@ -50,23 +56,29 @@ function Brand({ light = false }: { light?: boolean }) {
 }
 
 function AuthScreen({ mode, onDone }: { mode: 'login' | 'signup'; onDone: (profile?: Profile | null) => void }) {
-  const { signIn, signUp, refreshProfile } = useAuth();
-  const [, navigate] = useLocation();
+  const { signIn, signUp, refreshProfile, configured, error: authError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const signup = mode === 'signup';
   async function submit(event: FormEvent) {
-    event.preventDefault(); setError('');
+    event.preventDefault(); setError(''); setSuccessMessage('');
     if (signup && !fullName.trim()) { setError('Please enter your full name.'); return; }
     if (password.length < 6) { setError('Use a password with at least 6 characters.'); return; }
     setBusy(true);
     try {
-      if (signup) await signUp({ email, password, fullName: fullName.trim(), phone: phone.trim() });
-      else await signIn(email, password);
+      if (signup) {
+        const result = await signUp({ email, password, fullName: fullName.trim(), phone: phone.trim() });
+        if (result.needsEmailConfirmation) {
+          setPassword('');
+          setSuccessMessage(`Account created. Check ${email} for the confirmation link, then sign in.`);
+          return;
+        }
+      } else await signIn(email, password);
       const profile = await refreshProfile();
       onDone(profile as Profile | null);
     } catch (err) { setError(niceError(err)); }
@@ -88,7 +100,9 @@ function AuthScreen({ mode, onDone }: { mode: 'login' | 'signup'; onDone: (profi
         <div className="eyebrow">{signup ? 'Join your neighbourhood' : 'Resident & city staff access'}</div>
         <h2>{signup ? 'Create an account' : 'Welcome back'}</h2>
         <p>{signup ? 'One account to report faults and follow repairs.' : 'Sign in to continue where your street left off.'}</p>
+        {!configured && <div className="error-box" role="alert"><span>{authError || 'Supabase is not configured for this app.'}</span></div>}
         {error && <div className="error-box" role="alert"><span>{error}</span></div>}
+        {successMessage && <div className="notice" role="status">{successMessage}</div>}
         <form onSubmit={submit}>
           {signup && <div className="form-field"><label htmlFor="fullName">Full name</label><input id="fullName" autoComplete="name" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your name" required data-testid="input-full-name" /></div>}
           <div className="form-field"><label htmlFor="email">Email address</label><input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required data-testid="input-email" /></div>
@@ -105,13 +119,14 @@ function AuthScreen({ mode, onDone }: { mode: 'login' | 'signup'; onDone: (profi
 
 function AppRouter() {
   const auth = useAuth();
-  const [location, navigate] = useLocation();
+  const location = usePathname();
+  const router = useRouter();
   const qc = useQueryClient();
   const priorUser = useRef<string | null>(null);
   const profile = auth.profile as Profile | null;
   const userId = auth.user?.id || null;
   useEffect(() => {
-    if (priorUser.current !== userId && priorUser.current !== null) {
+    if (priorUser.current !== userId) {
       qc.removeQueries({ queryKey: ['citizen-reports'] });
       qc.removeQueries({ queryKey: ['notifications'] });
       qc.removeQueries({ queryKey: ['technician-tasks'] });
@@ -121,41 +136,49 @@ function AppRouter() {
   }, [userId, qc]);
   useEffect(() => {
     if (auth.loading) return;
-    if (location === '/') navigate(roleRoute(profile?.role), { replace: true });
+    if (location === '/') router.replace(roleRoute(profile?.role));
     else if (location === '/login' || location === '/signup') {
-      if (auth.user && profile?.role) navigate(roleRoute(profile.role), { replace: true });
-    } else if (!auth.user) navigate('/login', { replace: true });
-    else if (profile && (location === '/citizen' || location === '/admin' || location === '/technician') && roleRoute(profile.role) !== location) navigate(roleRoute(profile.role), { replace: true });
-  }, [auth.loading, auth.user, profile?.role, location, navigate]);
+      if (auth.user && profile?.role) router.replace(roleRoute(profile.role));
+    } else if (!auth.user) router.replace('/login');
+    else if (profile && (location === '/citizen' || location === '/admin' || location === '/technician') && roleRoute(profile.role) !== location) router.replace(roleRoute(profile.role));
+  }, [auth.loading, auth.user, profile?.role, location, router]);
   if (auth.loading) return <div className="auth-page" style={{ placeItems: 'center' }}><Busy label="Checking your account" /></div>;
-  const afterAuth = (result?: Profile | null) => navigate(roleRoute(result?.role || profile?.role), { replace: true });
-  return <RoutedErrorBoundary key={location}>
-    <Switch>
-      <Route path="/login">{() => <AuthScreen mode="login" onDone={afterAuth} />}</Route>
-      <Route path="/signup">{() => <AuthScreen mode="signup" onDone={afterAuth} />}</Route>
-      <Route path="/citizen">{() => auth.user && profile?.role === 'citizen' ? <DashboardShell profile={profile} section="citizen" onSignOut={auth.signOut}><CitizenDashboard profile={profile} /></DashboardShell> : <Busy label="Opening resident workspace" />}</Route>
-      <Route path="/admin">{() => auth.user && profile?.role === 'admin' ? <DashboardShell profile={profile} section="admin" onSignOut={auth.signOut}><AdminDashboard profile={profile} /></DashboardShell> : <Busy label="Opening city operations" />}</Route>
-      <Route path="/technician">{() => auth.user && profile?.role === 'technician' ? <DashboardShell profile={profile} section="technician" onSignOut={auth.signOut}><TechnicianDashboard profile={profile} /></DashboardShell> : <Busy label="Opening technician workspace" />}</Route>
-      <Route path="/" component={HomeRedirect} />
-      <Route component={NotFound} />
-    </Switch>
-  </RoutedErrorBoundary>;
+  if (auth.user && !profile && auth.error) {
+    return <main className="auth-page" style={{ placeItems: 'center' }}><section className="panel" role="alert"><div className="eyebrow">Account setup</div><h1 style={{ margin: '10px 0', color: '#203b35' }}>We couldn’t load your profile</h1><p className="panel-note">{auth.error}</p><button className="btn secondary" onClick={() => void auth.signOut()}>Sign out</button></section></main>;
+  }
+  const afterAuth = (result?: Profile | null) => router.replace(roleRoute(result?.role || profile?.role));
+  let content: ReactNode;
+  if (location === '/') {
+    content = <HomeRedirect />;
+  } else if (location === '/login' || location === '/signup') {
+    content = auth.user && profile?.role ? <Busy label="Opening your workspace" /> : <AuthScreen mode={location === '/signup' ? 'signup' : 'login'} onDone={afterAuth} />;
+  } else if (location === '/citizen') {
+    content = auth.user && profile?.role === 'citizen' ? <DashboardShell profile={profile} section="citizen" onSignOut={auth.signOut}><CitizenDashboard profile={profile} /></DashboardShell> : <Busy label="Opening resident workspace" />;
+  } else if (location === '/admin') {
+    content = auth.user && profile?.role === 'admin' ? <DashboardShell profile={profile} section="admin" onSignOut={auth.signOut}><AdminDashboard profile={profile} /></DashboardShell> : <Busy label="Opening city operations" />;
+  } else if (location === '/technician') {
+    content = auth.user && profile?.role === 'technician' ? <DashboardShell profile={profile} section="technician" onSignOut={auth.signOut}><TechnicianDashboard profile={profile} /></DashboardShell> : <Busy label="Opening technician workspace" />;
+  } else {
+    content = <main className="auth-page" style={{ placeItems: 'center' }}><section className="panel"><div className="eyebrow">SmartStreet · Hyderabad</div><h1 style={{ margin: '10px 0', color: '#203b35' }}>Page not found</h1><p className="panel-note">That page isn’t part of your street service workspace.</p><Link className="btn" href="/">Return to your dashboard</Link></section></main>;
+  }
+  return <RoutedErrorBoundary key={location}>{content}</RoutedErrorBoundary>;
 }
 
 function HomeRedirect() {
   const { profile, loading } = useAuth();
-  const [, navigate] = useLocation();
-  useEffect(() => { if (!loading) navigate(roleRoute((profile as Profile | null)?.role), { replace: true }); }, [loading, profile, navigate]);
+  const router = useRouter();
+  const role = (profile as Profile | null)?.role;
+  useEffect(() => { if (!loading) router.replace(roleRoute(role)); }, [loading, role, router]);
   return <Busy label="Finding your workspace" />;
 }
 
 function RoutedErrorBoundary({ children }: { children: ReactNode }) {
-  const [location] = useLocation();
+  const location = usePathname();
   return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
 }
 
 function DashboardShell({ profile, section, onSignOut, children }: { profile: Profile; section: Role; onSignOut: () => Promise<unknown> | void; children: ReactNode }) {
-  const [location] = useLocation();
+  const location = usePathname();
   const nav = section === 'citizen'
     ? [{ href: '/citizen', text: 'Neighbourhood', icon: MapPin }]
     : section === 'admin' ? [{ href: '/admin', text: 'Operations overview', icon: Activity }]
@@ -199,17 +222,6 @@ function CitizenDashboard({ profile }: { profile: Profile }) {
   const lightItems = (lights.data || []) as Streetlight[];
   const openCount = reportItems.filter((r) => !['verified', 'closed'].includes((r.status || '').toLowerCase())).length;
   const unread = ((notifications.data || []) as NotificationItem[]).filter((n) => !n.is_read).length;
-  const mapPoints = useMemo(() => {
-    if (!lightItems.length) return [];
-    const lat = lightItems.map((l) => Number(l.latitude)).filter(Number.isFinite);
-    const lng = lightItems.map((l) => Number(l.longitude)).filter(Number.isFinite);
-    const minLat = Math.min(...lat), maxLat = Math.max(...lat), minLng = Math.min(...lng), maxLng = Math.max(...lng);
-    return lightItems.map((l) => ({
-      light: l,
-      x: 17 + (maxLng === minLng ? .5 : (Number(l.longitude) - minLng) / (maxLng - minLng)) * 66,
-      y: 19 + (maxLat === minLat ? .5 : 1 - (Number(l.latitude) - minLat) / (maxLat - minLat)) * 59,
-    }));
-  }, [lightItems]);
   async function submitReport(event: FormEvent) {
     event.preventDefault(); setFormError('');
     if (!lightId) { setFormError('Choose the closest streetlight to continue.'); return; }
@@ -235,9 +247,9 @@ function CitizenDashboard({ profile }: { profile: Profile }) {
           <div style={{ gridColumn: '1/-1', display: 'flex', justifyContent: 'flex-end' }}><button className="btn" type="submit" disabled={create.isPending} data-testid="button-submit-report">{create.isPending ? 'Sending report…' : 'Submit report'}<ChevronRight size={15} /></button></div>
         </form>}
     </section>}
-    <div className="workspace-grid section-gap">
+     <div className="workspace-grid section-gap">
       <section className="panel"><div className="panel-head"><div><h2 className="panel-title">Streetlight map</h2><div className="panel-note">Each marker reflects the city directory status.</div></div><span className="eyebrow">{lightItems.length} listed</span></div>
-        {lights.isLoading ? <Busy label="Loading streetlight directory" /> : lights.isError ? <Failure error={lights.error} retry={() => void lights.refetch()} /> : lightItems.length === 0 ? <Empty icon={MapPin} title="No map points yet" copy="Streetlights will appear here once the city directory is available." /> : <div className="map-card" aria-label={`Map view of ${lightItems.length} streetlights`}><span className="map-label">HYDERABAD · STREETLIGHT NETWORK</span>{mapPoints.map(({ light, x, y }) => <span title={`${light.light_code}: ${light.location}`} key={light.id} className={`map-pin ${light.status === 'operational' ? 'operational' : light.status === 'inactive' ? 'inactive' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} />)}<div className="map-legend"><span className="legend-item"><i className="legend-dot" />Needs attention</span><span className="legend-item"><i className="legend-dot ok" />Listed operational</span></div><span className="map-count">{lightItems.length} LIGHTS MAPPED</span></div>}
+         {lights.isLoading ? <Busy label="Loading streetlight directory" /> : lights.isError ? <Failure error={lights.error} retry={() => void lights.refetch()} /> : lightItems.length === 0 ? <Empty icon={MapPin} title="No map points yet" copy="Streetlights will appear here once the city directory is available." /> : <StreetlightMap lights={lightItems} />}
       </section>
       <section className="panel"><div className="panel-head"><div><h2 className="panel-title">Your reports</h2><div className="panel-note">Track the latest service progress.</div></div><ClipboardList size={17} color="#839188" /></div>
         {reports.isLoading ? <Busy label="Loading your reports" /> : reports.isError ? <Failure error={reports.error} retry={() => void reports.refetch()} /> : reportItems.length === 0 ? <Empty icon={FileWarning} title="Nothing to follow yet" copy="When you report a faulty light, its progress will appear here." /> :
@@ -350,9 +362,11 @@ function ReportRow({ report, light }: { report: Report; light?: Streetlight }) {
   return <div className="list-row" data-testid={`row-report-${report.id}`}><div className="row-icon"><Lightbulb size={16} /></div><div className="row-main"><strong>{light?.light_code || report.streetlight?.light_code || report.light?.light_code || 'Streetlight report'} · {titleCase(report.issue_type)}</strong><span>{(light || report.streetlight || report.light)?.location || 'Location unavailable'} · Reported {formatDate(report.created_at)}</span></div><span className={statusClass(report.status)}>{titleCase(report.status)}</span></div>;
 }
 
-function Home() { return <HomeRedirect />; }
 function App() {
-  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><AppRouter /></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
+  const [client] = useState(() => new QueryClient({
+    defaultOptions: { queries: { staleTime: 25_000, retry: 1, refetchOnWindowFocus: false } },
+  }));
+  return <QueryClientProvider client={client}><TooltipProvider><AppRouter /><Toaster /></TooltipProvider></QueryClientProvider>;
 }
 
 export default App;

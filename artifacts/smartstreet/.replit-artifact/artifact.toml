@@ -16,12 +16,7 @@ run = "pnpm --filter @workspace/smartstreet run dev"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/smartstreet", "run", "build" ]
-serve = "static"
-publicDir = "artifacts/smartstreet/dist/public"
-
-[[services.production.rewrites]]
-from = "/*"
-to = "/index.html"
+run = "pnpm --filter @workspace/smartstreet run start"
 
 [services.env]
 PORT = "20851"
