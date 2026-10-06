@@ -1,0 +1,994 @@
+## SUPABASE IMPLEMENTATION — IMPORTANT
+
+Now implement the Supabase backend completely for the SmartStreet application.
+
+I will provide the Supabase project credentials through the Replit environment/secrets system.
+
+Use these environment variables:
+
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+If the project uses a Supabase publishable key instead of the legacy anon key, use the publishable key in the appropriate client environment variable.
+
+### SECURITY RULE
+
+NEVER:
+
+* Hardcode Supabase credentials in source code
+* Commit credentials to GitHub
+* Put credentials inside React components
+* Put credentials inside SQL files
+* Use the Supabase service-role key in browser/client code
+* Create a custom authentication system
+* Store passwords in the database
+
+Only use environment variables.
+
+Create/update:
+
+.env.example
+
+with:
+
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+
+Do not put real credentials into `.env.example`.
+
+---
+
+# 1. CONNECT SUPABASE
+
+Configure Supabase using the existing Next.js App Router architecture.
+
+Create a minimal reusable Supabase setup.
+
+Use the official Supabase JavaScript client.
+
+The application must support:
+
+* Browser/client Supabase access
+* Server-side Supabase access where required
+* Authentication session persistence
+* Protected dashboard routes
+
+Do not introduce unnecessary authentication libraries.
+
+---
+
+# 2. CREATE DATABASE SCHEMA
+
+Create a complete SQL setup file such as:
+
+supabase/schema.sql
+
+Create these tables:
+
+## profiles
+
+Columns:
+
+id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE
+
+full_name TEXT NOT NULL
+
+email TEXT
+
+phone TEXT
+
+role TEXT NOT NULL DEFAULT 'citizen'
+
+created_at TIMESTAMPTZ DEFAULT NOW()
+
+Allowed roles:
+
+admin
+technician
+citizen
+
+---
+
+## streetlights
+
+id UUID PRIMARY KEY DEFAULT gen_random_uuid()
+
+light_code TEXT UNIQUE NOT NULL
+
+latitude DOUBLE PRECISION NOT NULL
+
+longitude DOUBLE PRECISION NOT NULL
+
+location TEXT NOT NULL
+
+zone TEXT
+
+status TEXT NOT NULL DEFAULT 'working'
+
+created_at TIMESTAMPTZ DEFAULT NOW()
+
+updated_at TIMESTAMPTZ DEFAULT NOW()
+
+Allowed status:
+
+working
+failed
+maintenance
+inactive
+
+---
+
+## reports
+
+id UUID PRIMARY KEY DEFAULT gen_random_uuid()
+
+streetlight_id UUID REFERENCES streetlights(id) ON DELETE CASCADE
+
+reported_by UUID REFERENCES profiles(id) ON DELETE CASCADE
+
+issue_type TEXT NOT NULL
+
+description TEXT
+
+priority_score INTEGER DEFAULT 0
+
+priority_level TEXT DEFAULT 'low'
+
+status TEXT DEFAULT 'open'
+
+created_at TIMESTAMPTZ DEFAULT NOW()
+
+updated_at TIMESTAMPTZ DEFAULT NOW()
+
+Allowed priority levels:
+
+low
+medium
+high
+critical
+
+Allowed statuses:
+
+open
+assigned
+in_progress
+resolved
+verified
+
+---
+
+## maintenance_tasks
+
+id UUID PRIMARY KEY DEFAULT gen_random_uuid()
+
+report_id UUID REFERENCES reports(id) ON DELETE CASCADE
+
+technician_id UUID REFERENCES profiles(id) ON DELETE CASCADE
+
+assigned_by UUID REFERENCES profiles(id) ON DELETE SET NULL
+
+status TEXT DEFAULT 'assigned'
+
+remarks TEXT
+
+assigned_at TIMESTAMPTZ DEFAULT NOW()
+
+started_at TIMESTAMPTZ
+
+completed_at TIMESTAMPTZ
+
+Allowed statuses:
+
+assigned
+in_progress
+resolved
+verified
+
+---
+
+## notifications
+
+id UUID PRIMARY KEY DEFAULT gen_random_uuid()
+
+user_id UUID REFERENCES profiles(id) ON DELETE CASCADE
+
+message TEXT NOT NULL
+
+is_read BOOLEAN DEFAULT FALSE
+
+created_at TIMESTAMPTZ DEFAULT NOW()
+
+---
+
+# 3. INDEXES
+
+Add useful indexes for fast dashboard queries.
+
+At minimum:
+
+reports.status
+
+reports.priority_level
+
+reports.streetlight_id
+
+reports.reported_by
+
+maintenance_tasks.technician_id
+
+maintenance_tasks.status
+
+streetlights.status
+
+streetlights.zone
+
+Do not create unnecessary indexes.
+
+---
+
+# 4. PROFILE CREATION
+
+When a user signs up using Supabase Auth:
+
+Automatically create a corresponding row in profiles.
+
+Use a PostgreSQL trigger/function on auth.users if appropriate.
+
+Default new users to:
+
+role = 'citizen'
+
+Do NOT allow normal users to choose "admin" during public signup.
+
+Admin and technician roles must be assigned securely through the database/admin setup.
+
+---
+
+# 5. AUTHENTICATION
+
+Implement:
+
+Signup
+Login
+Logout
+Session persistence
+Protected routes
+
+After authentication:
+
+Read the user's profile.
+
+Redirect based on role:
+
+admin → /admin
+
+technician → /technician
+
+citizen → /citizen
+
+If the profile does not exist, handle the error gracefully.
+
+Do not expose database errors directly to users.
+
+---
+
+# 6. ROLE-BASED SECURITY
+
+Implement Supabase Row Level Security.
+
+Do NOT simply hide UI buttons and consider that security.
+
+The database itself must restrict access.
+
+### Citizen
+
+Citizen can:
+
+READ streetlights
+
+INSERT reports where:
+
+reported_by = authenticated user
+
+READ only their own reports
+
+READ their own notifications
+
+Cannot:
+
+* Read other citizens' reports
+* Assign technicians
+* Modify maintenance tasks
+* Change their role
+* Access admin data
+
+### Technician
+
+Technician can:
+
+READ relevant streetlights
+
+READ reports associated with assigned maintenance tasks
+
+READ their own maintenance tasks
+
+UPDATE their own assigned maintenance tasks
+
+READ their own notifications
+
+Technician cannot:
+
+* Assign tasks
+* Change user roles
+* Modify another technician's tasks
+* Access admin-only data
+
+### Admin
+
+Admin can:
+
+READ all profiles
+
+READ all streetlights
+
+READ all reports
+
+READ all maintenance tasks
+
+READ all notifications
+
+INSERT/UPDATE required application records
+
+Assign technicians
+
+Verify completed tasks
+
+Manage streetlight/report information where required
+
+Do not make the entire database publicly readable.
+
+---
+
+# 7. IMPORTANT RLS IMPLEMENTATION RULE
+
+Avoid infinite recursion in RLS policies.
+
+If checking whether the current user is an admin, use a safe helper function such as:
+
+is_admin()
+
+or another secure PostgreSQL function.
+
+Do not create policies that query profiles in a way that recursively triggers the profiles policies.
+
+Test RLS after implementation.
+
+---
+
+# 8. DEMO DATA
+
+Create:
+
+supabase/seed.sql
+
+Insert approximately:
+
+25 streetlights
+
+5 technicians
+
+Several citizen/demo users if practical
+
+8–12 reports
+
+Several maintenance tasks
+
+Use fictional Hyderabad-style locations:
+
+Madhapur
+Gachibowli
+Kondapur
+Hitech City
+Kukatpally
+
+Use fictional/demo coordinates.
+
+Do not depend on external APIs.
+
+The application must still work if the seed data is removed.
+
+---
+
+# 9. DEMO USERS
+
+Create a clear README section explaining how to create:
+
+Admin
+Technician
+Citizen
+
+Supabase Auth users.
+
+Do NOT hardcode passwords in the application.
+
+If automatic demo-account creation is required, keep it server-side and never expose service-role credentials to the browser.
+
+Prefer manual creation through Supabase Auth for the hackathon MVP.
+
+Example README format:
+
+Admin:
+email: configured in Supabase
+role: admin
+
+Technician:
+email: configured in Supabase
+role: technician
+
+Citizen:
+email: configured in Supabase
+role: citizen
+
+Do not put real passwords in README.
+
+---
+
+# 10. PRIORITY ENGINE
+
+Create:
+
+lib/priority/calculatePriority.ts
+
+Implement:
+
+calculatePriority(...)
+
+The scoring should be deterministic.
+
+Example factors:
+
+Base failure severity
+
+* location importance
+* traffic importance
+* repeated reports
+* failure duration
+
+Return:
+
+{
+score,
+level
+}
+
+Mapping:
+
+80–100 → critical
+
+60–79 → high
+
+40–59 → medium
+
+0–39 → low
+
+Keep the implementation simple.
+
+No machine learning.
+
+No external AI API.
+
+When a citizen creates a report:
+
+1. Determine priority
+2. Store priority_score
+3. Store priority_level
+4. Store status = open
+
+---
+
+# 11. REPORT CREATION
+
+Citizen submits:
+
+streetlight
+issue type
+description
+
+Application should:
+
+1. Validate input
+2. Get authenticated user
+3. Calculate priority
+4. Insert report into Supabase
+5. Update streetlight status to failed if appropriate
+6. Show success message
+7. Refresh My Reports
+
+If insertion fails:
+
+Show:
+
+"Unable to submit your report. Please try again."
+
+Do not expose raw Supabase errors.
+
+---
+
+# 12. ADMIN ASSIGNMENT
+
+Admin opens an open report.
+
+Show:
+
+Streetlight
+Location
+Issue
+Priority
+Description
+Reported time
+
+Admin selects a technician.
+
+Create maintenance_tasks row.
+
+Update report:
+
+status = assigned
+
+Create a notification for the technician.
+
+Example:
+
+"New maintenance task assigned for SL-102."
+
+---
+
+# 13. TECHNICIAN WORKFLOW
+
+Technician sees only assigned tasks.
+
+When clicking:
+
+Start Task
+
+Update:
+
+maintenance_tasks.status = in_progress
+
+maintenance_tasks.started_at = NOW()
+
+Update report:
+
+status = in_progress
+
+When clicking:
+
+Mark Resolved
+
+Require optional repair remarks.
+
+Update:
+
+maintenance_tasks.status = resolved
+
+maintenance_tasks.completed_at = NOW()
+
+maintenance_tasks.remarks = entered remarks
+
+Update report:
+
+status = resolved
+
+Update streetlight:
+
+status = working
+
+Create notification for admin.
+
+---
+
+# 14. ADMIN VERIFICATION
+
+Admin can see resolved tasks.
+
+Admin can click:
+
+Verify
+
+Then:
+
+maintenance_tasks.status = verified
+
+reports.status = verified
+
+Create notification for citizen.
+
+Example:
+
+"Your streetlight complaint has been verified and resolved."
+
+---
+
+# 15. CITIZEN STATUS
+
+Citizen must be able to see:
+
+Report ID
+Streetlight
+Issue
+Priority
+Current status
+Created date
+Last updated
+
+Status flow:
+
+OPEN
+↓
+ASSIGNED
+↓
+IN PROGRESS
+↓
+RESOLVED
+↓
+VERIFIED
+
+Use clear badges.
+
+---
+
+# 16. STREETLIGHT MAP
+
+Use:
+
+Leaflet
+OpenStreetMap
+
+Do NOT use Google Maps.
+
+Map should load streetlights from Supabase.
+
+Marker states:
+
+working → green
+
+failed → red
+
+maintenance → orange
+
+inactive → gray
+
+Popup:
+
+Light Code
+Location
+Zone
+Status
+
+Do not expose sensitive user information on the map.
+
+---
+
+# 17. ADMIN ANALYTICS
+
+Do NOT build complex analytics.
+
+Use simple database queries and KPI cards:
+
+Total Streetlights
+
+Working
+
+Failed
+
+Maintenance
+
+Open Reports
+
+Critical Reports
+
+Active Tasks
+
+Resolved Tasks
+
+Use simple counts.
+
+Avoid external analytics services.
+
+---
+
+# 18. REAL-TIME — OPTIONAL
+
+DO NOT implement Supabase Realtime unless the core application is already working.
+
+The MVP can refresh data after actions.
+
+If time remains, Realtime can be added later.
+
+Core functionality has priority.
+
+---
+
+# 19. PHOTO UPLOAD — OPTIONAL
+
+Do NOT implement photo upload initially.
+
+Only implement Supabase Storage if all core functionality is already complete and stable.
+
+The application must work perfectly without photos.
+
+---
+
+# 20. DATABASE ERROR HANDLING
+
+Every database operation must:
+
+* Check for errors
+* Log useful errors during development
+* Show friendly messages to users
+* Avoid exposing SQL/database details
+
+Example:
+
+if error:
+
+"Unable to load maintenance tasks. Please try again."
+
+Do not show raw:
+
+PostgrestError
+SQL error
+database schema details
+
+to normal users.
+
+---
+
+# 21. ENVIRONMENT CHECK
+
+Create a small safe environment validation.
+
+If Supabase environment variables are missing:
+
+Show a development-friendly message.
+
+Do NOT expose secret values.
+
+Never print keys to console.
+
+---
+
+# 22. VERCEL DEPLOYMENT REQUIREMENTS
+
+The final application must work with:
+
+Vercel
++
+Supabase
+
+No separate backend.
+
+Before finishing:
+
+Run:
+
+npm run build
+
+Fix all TypeScript errors.
+
+Fix all build errors.
+
+Fix all ESLint errors that block production.
+
+Test production behavior.
+
+The application must not depend on:
+
+localhost
+Replit
+local filesystem
+Python
+FastAPI
+Express
+custom backend server
+
+---
+
+# 23. IMPORTANT REPLIT WORKFLOW
+
+Because this is a 10–12 hour hackathon build, work incrementally.
+
+After completing each phase:
+
+1. Run the application
+2. Check browser console
+3. Check terminal
+4. Check Supabase queries
+5. Fix errors immediately
+6. Continue
+
+Do NOT generate huge amounts of code at once.
+
+Do NOT rewrite working code.
+
+Do NOT install unnecessary packages.
+
+---
+
+# 24. PRIORITY OF FEATURES
+
+Build in this exact priority:
+
+P0 — MUST WORK
+
+Authentication
+Supabase connection
+Profiles
+Roles
+Streetlights
+Citizen report
+Priority calculation
+Admin report view
+Technician assignment
+Technician task
+Start task
+Resolve task
+Citizen status
+Admin dashboard
+Map
+Vercel build
+
+P1 — ADD IF TIME
+
+Notifications
+Better analytics
+Filters
+Search
+Mobile polish
+
+P2 — ONLY IF EVERYTHING IS STABLE
+
+Photo upload
+Realtime updates
+Advanced charts
+Advanced filtering
+Geolocation
+AI features
+
+Never sacrifice P0 features for P1/P2 features.
+
+---
+
+# 25. FINAL END-TO-END TEST
+
+Before saying the project is complete, perform this exact test:
+
+### TEST 1
+
+Login as Citizen.
+
+Create a streetlight failure report.
+
+Confirm it appears in My Reports.
+
+### TEST 2
+
+Login as Admin.
+
+Confirm the report appears.
+
+Confirm priority is calculated.
+
+Assign a technician.
+
+### TEST 3
+
+Login as Technician.
+
+Confirm the task appears.
+
+Click Start Task.
+
+Confirm status changes.
+
+Click Mark Resolved.
+
+Enter repair remarks.
+
+Confirm status changes.
+
+### TEST 4
+
+Login as Admin.
+
+Confirm resolved task appears.
+
+Verify the task.
+
+### TEST 5
+
+Login as Citizen.
+
+Confirm the original report shows:
+
+VERIFIED
+
+### TEST 6
+
+Refresh the browser.
+
+Confirm data remains.
+
+### TEST 7
+
+Logout.
+
+Attempt to access another role's dashboard.
+
+Confirm unauthorized access is blocked.
+
+### TEST 8
+
+Run:
+
+npm run build
+
+Confirm production build succeeds.
+
+---
+
+# 26. DO NOT STOP AT UI
+
+IMPORTANT:
+
+Do not create fake frontend data just to make the dashboard look complete.
+
+The following MUST come from Supabase:
+
+* User profile
+* User role
+* Streetlights
+* Reports
+* Priority
+* Maintenance tasks
+* Task status
+* Notifications
+
+The complete Citizen → Admin → Technician → Admin → Citizen workflow must use real Supabase data.
+
+---
+
+# 27. FINAL DELIVERABLE
+
+At the end provide a concise README explaining:
+
+1. How to install
+2. Required environment variables
+3. Supabase project setup
+4. How to run schema.sql
+5. How to run seed.sql
+6. How to create demo users
+7. How roles work
+8. How to run locally
+9. How to deploy to Vercel
+10. End-to-end demo workflow
+
+Do not add unnecessary documentation.
+
+---
+
+## FINAL DEVELOPMENT RULE
+
+The goal is NOT to build a huge production system.
+
+The goal is:
+
+**A stable, real-data, Supabase-backed SmartStreet hackathon MVP that can be demonstrated end-to-end and deployed to Vercel without a separate backend.**
+
+If a feature creates deployment risk, skip it.
+
+If a feature requires unnecessary infrastructure, skip it.
+
+If a feature is not required for the Citizen → Admin → Technician workflow, implement it only after the core workflow works.
+
+Start implementing now.
